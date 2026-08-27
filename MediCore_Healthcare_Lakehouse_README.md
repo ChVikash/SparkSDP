@@ -77,9 +77,6 @@ file deliveries:
 Load 1 → Load 2 → Load 3 → Load 4 → Load 5
 ```
 
-The terms Day1, Day2, etc. therefore represent **successive loads**, not
-calendar dates.
-
 ------------------------------------------------------------------------
 
 # 3. Business Outcomes
