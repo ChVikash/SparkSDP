@@ -12,13 +12,17 @@ and data products --- lives in `phase1_business_understanding.md`.
 # 1. Source Applications and Responsibilities
 
 README section 2 names five operational application areas. Facilities and
-providers are treated here as centrally-maintained reference/master data
-rather than being owned by one of the five transactional apps
+providers are owned by their own independent Facility & Provider Directory
+system, rather than being folded into one of the five transactional apps
+--- **[CONFIRMED]** keeping them independent avoids tightly coupling
+reference/master data (low change frequency) to a transactional app's
+lifecycle (high change frequency), which would otherwise create an
+unnecessary dependency between unrelated domains:
 
 | Source application | Entities owned | Nature |
 |---|---|---|
 | Patient Management System | `patients` | Registration + demographic updates |
-| Facility & Provider Directory **[ASSUMPTION]** | `facilities`, `providers` | Administrative reference/master data, low change frequency |
+| Facility & Provider Directory | `facilities`, `providers` | Administrative reference/master data, low change frequency, independent of transactional apps |
 | Clinical / Encounter Management System | `encounters` | Visit lifecycle (admit → discharge / open → close) |
 | Laboratory Information System (LIS) | `lab_results` | Orders and results tied to an encounter |
 | Pharmacy / Prescription Management System | `prescriptions` | Medications tied to an encounter |
@@ -29,7 +33,9 @@ rather than being owned by one of the five transactional apps
 # 2. Entity Relationships
 
 ```text
-facilities ──1:N── providers        (a provider may serve multiple facilities → treat as N:M [ASSUMPTION])
+facilities ──N:M── providers        (a provider can work across multiple facilities in the same network,
+                                      depending on whether the relevant infrastructure/specialty exists
+                                      at each facility --- [CONFIRMED])
 facilities ──1:N── encounters
 providers  ──1:N── encounters
 patients   ──1:N── encounters
@@ -166,10 +172,16 @@ explicitly before Gold design.
 
 1. Confirm whether `patient_id` is network-global or per-facility (drives
    whether an MPI/identity-resolution step is needed before `dim_patient`).
-2. Confirm the `facilities`/`providers` ownership assumption in section 4,
-   or specify the actual owning system(s).
-3. Confirm encounter → claim cardinality (1:1 vs 1:N) to finalize
+2. Confirm encounter → claim cardinality (1:1 vs 1:N) to finalize
    `fact_claim` grain.
-4. Confirm whether any entity has a genuine multi-facility identity overlap
+3. Confirm whether any entity has a genuine multi-facility identity overlap
    scenario intended for Load 2+ (e.g. a patient seen at two facilities),
    since this directly exercises the Patient 360 outcome.
+
+**Resolved:**
+- `facilities`/`providers` ownership --- independent Facility & Provider
+  Directory system, kept separate from the 5 transactional apps to avoid
+  coupling reference data to transactional lifecycles.
+- `facilities`↔`providers` cardinality --- N:M, since a provider can work
+  across multiple facilities in the same network depending on
+  infrastructure/specialty availability at each site.
