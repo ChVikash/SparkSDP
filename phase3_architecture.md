@@ -34,10 +34,10 @@ layer.
   incrementally --- Auto Loader supports Volume paths the same way it
   supports cloud storage paths, so this substitution doesn't change the
   ingestion pattern, only where the bytes physically live.
-- **[ASSUMPTION]** In a real deployment this project would use an
+- **[NOTED, agreed]** In a real deployment this project would use an
   external ADLS Gen2 account + UC external location/storage credential
-  instead of a managed volume. That's called out here as a deliberate,
-  documented deviation for this learning environment, not an oversight.
+  instead of a managed volume. Called out as a deliberate, documented
+  deviation for this learning environment, not an oversight.
 
 ------------------------------------------------------------------------
 
@@ -111,10 +111,10 @@ volumes, pipelines, jobs, permissions --- across Dev/Test/Prod
 | MLflow | Experiment tracking and model registry --- future ML use cases (README §16) |
 | Model Serving | Hosts ML models and/or LLM endpoints for the future agentic layer |
 | Vector Search | Indexes governed Gold-layer text/embeddings for RAG --- future agentic use cases (patient summarization, ops assistant) |
-| Lakebase | Postgres-compatible, low-latency operational store --- **[ASSUMPTION]** used later to serve a synced subset of Gold data (e.g. current patient snapshot) to a Databricks App with OLTP-style access patterns Delta/SQL Warehouse isn't built for |
+| Lakebase | Postgres-compatible, low-latency operational store --- **[NOTED, agreed]** used later to serve a synced subset of Gold data (e.g. current patient snapshot) to a Databricks App with OLTP-style access patterns Delta/SQL Warehouse isn't built for |
 | Databricks Apps | Hosts internal-facing applications (Patient 360 viewer, operations assistant UI) directly on governed data, without a separate app-hosting platform |
 
-**[ASSUMPTION]** Lakebase, Vector Search, Model Serving, and Databricks
+**[NOTED, agreed]** Lakebase, Vector Search, Model Serving, and Databricks
 Apps are all named in README §16 as *future* phases (ML/Agentic Layer).
 They're included here in the service map for completeness/relationships,
 but Phase 3--4 work (Bronze/Silver/Gold + DAB deployment) does not depend
@@ -204,7 +204,7 @@ README §12.
 | `providers` | Auto Loader, `providers.json` | `APPLY CHANGES INTO` (SCD2 --- **[CONFIRMED]**, specialty/credential history has analytical value for Provider Performance) | `dim_provider`, SCD Type 2 |
 | `facilities` | Auto Loader, `facilities.json` | `MERGE`/upsert on `facility_id`; low volume, near-static | `dim_facility`, SCD Type 1 (current state only --- **[CONFIRMED]**, facility identity rarely needs historical tracking) |
 | `encounters` | Auto Loader, `encounters.json` | `MERGE` on `encounter_id` handling status transitions; dedup on late-arriving/duplicate records (Load 5) using event time | `fact_encounter`, incremental append/merge, FKs to `dim_patient`/`dim_provider`/`dim_facility`/`dim_date` |
-| `lab_results` | Auto Loader, `lab_results.parquet` | Append-only, correction handling **[OPEN --- see §7]**: latest-value-wins via a sequencing column, *or* versioned (keep all results, flag current) | `fact_lab_result`, append/merge, FK to `fact_encounter` (or directly to `dim_patient`/`dim_provider`/`dim_facility` via the encounter) |
+| `lab_results` | Auto Loader, `lab_results.parquet` | Append + **[CONFIRMED]** SCD Type 2 versioning on correction: a corrected result inserts a new row (`effective_from`/`effective_to` or `is_current` flag) rather than overwriting, so the original and the correction are both preserved for audit | `fact_lab_result`, SCD2, FK to `fact_encounter` (or directly to `dim_patient`/`dim_provider`/`dim_facility` via the encounter); consumers filter to `is_current = true` unless doing a point-in-time/audit query |
 | `prescriptions` | Auto Loader, `prescriptions.csv` | `MERGE` on `prescription_id` handling status changes (filled/cancelled, confirmed in Phase 2) | `fact_prescription`, incremental append/merge |
 | `claims` | Auto Loader, `claims.json` | `APPLY CHANGES INTO` on `claim_id` --- the clearest CDC/upsert case (status lifecycle confirmed in Phase 2) | `fact_claim`, grain = one row per claim (1:N from `encounters`, confirmed in Phase 2) |
 
@@ -330,8 +330,7 @@ scattered across transform code.
   placeholder.
 
 ## 6.3 Groups (UC account-level groups, one per persona cluster from
-`phase1_business_understanding.md` §1) --- **[ASSUMPTION, please confirm
-naming]**:
+`phase1_business_understanding.md` §1) --- **[CONFIRMED]**:
 
 | Group | Roughly corresponds to persona(s) |
 |---|---|
@@ -348,25 +347,22 @@ naming]**:
 
 # 7. Open Items Before Phase 4 (Implementation)
 
-1. **[OPEN]** `lab_results` correction handling (§5 table): latest-wins
-   (overwrite) vs. versioned (keep every result, flag the current one).
-   Versioning fits README §3.4's "Auditability"/"Reproducible processing"
-   outcomes better for a healthcare context --- a corrected lab result is
-   arguably something you want to prove was corrected, not just silently
-   replace --- but it's your call since it also means `fact_lab_result`
-   carries superseded rows that consumers must filter. Leaning versioned
-   unless you'd rather keep it simple.
-2. **[OPEN]** Confirm the `grp_*` UC group names/composition in §6.3, or
-   provide the actual naming convention you want.
-3. **[OPEN]** Confirm the `pii_column_policy` control table's exact
-   column classifications per entity (i.e. actually fill in the table for
-   each PHI/PII column across all 7 entities) --- §6.1 defines the
-   *shape* of the control table, not yet its contents.
+**[DEFERRED, by design]** The `pii_column_policy` control table's actual
+contents (real column-by-column classification across all 7 entities) are
+intentionally *not* filled in here. They'll be identified once Load 1's
+raw files are landed and handled, against the real column names, rather
+than guessed at the architecture stage. This is Phase 4 work, done right
+after Bronze ingestion of Load 1.
+
+All other architecture-level items are resolved --- see below.
 
 **Resolved:**
 - Unity Catalog structure --- catalog-per-environment, schema-per-layer
   (§3).
 - SCD choices --- `dim_provider` SCD2, `dim_facility` SCD1 (§5).
+- `lab_results` correction handling --- SCD Type 2 versioning; a
+  correction inserts a new row rather than overwriting, preserving the
+  original for audit (§5).
 - MDM matching approach --- staged exact-match then blocked fuzzy
   matching (Jaro-Winkler + blocking), three-way outcome
   (auto-match/auto-reject/manual-review), hand-rolled for now; Zingg
@@ -377,5 +373,9 @@ naming]**:
   tokenize/encrypt/generalize with group-gated, DAB-generated UC column
   masks; reversible encryption uses Databricks-native secret scopes, not
   Azure Key Vault (§6).
+- UC groups --- `grp_clinical_care`, `grp_lab_ops`, `grp_pharmacy_ops`,
+  `grp_billing_finance`, `grp_facility_admin`,
+  `grp_compliance_governance`, `grp_data_engineering`,
+  `grp_platform_ml` (§6.3).
 - Lakeflow Job granularity --- one Pipeline (full DAG, all entities),
   one Job triggering it per Load (§5.2).
