@@ -7,14 +7,6 @@ relationships, and a source-data contract per entity.
 Phase 1 business-understanding content --- personas, business questions,
 and data products --- lives in `phase1_business_understanding.md`.
 
-> **Note on assumptions:** the base README defines the business scenario,
-> the 7 entities, and the 5 operational application areas, but does not
-> spell out per-entity contract details. Those are drafted here as a
-> reasonable first pass grounded in the business scenario, and are
-> flagged as **[ASSUMPTION]** where they go beyond what the README states
-> directly. Please correct/override anything that doesn't match your
-> intent before this is treated as final.
-
 ------------------------------------------------------------------------
 
 # 1. Source Applications and Responsibilities
@@ -22,7 +14,6 @@ and data products --- lives in `phase1_business_understanding.md`.
 README section 2 names five operational application areas. Facilities and
 providers are treated here as centrally-maintained reference/master data
 rather than being owned by one of the five transactional apps
-**[ASSUMPTION --- please confirm]**:
 
 | Source application | Entities owned | Nature |
 |---|---|---|
