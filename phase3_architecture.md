@@ -88,8 +88,9 @@ stack (tying back to README §11 Governance).
    (Patient 360 / ops-assistant
          UI, internal tools)
 
-LAKEFLOW JOBS orchestrate/schedule the whole vertical chain
-(landing → Bronze → Silver → Gold), and simulate each Load's arrival.
+LAKEFLOW JOBS: one main Job triggers the one main Pipeline per Load
+(landing → Bronze → Silver → Gold), simulating that Load's arrival ---
+see §5.2.
 
 DATABRICKS ASSET BUNDLES (DABs) deploy all of the above --- catalogs,
 volumes, pipelines, jobs, permissions --- across Dev/Test/Prod
@@ -123,9 +124,8 @@ on them --- they become relevant starting Phase 6.
 
 # 3. Unity Catalog Structure
 
-**[ASSUMPTION --- please confirm]** proposed structure: one catalog per
-environment (matching the Dev/Test/Prod promotion model in README §14),
-one schema per medallion layer within it.
+**[CONFIRMED]** one catalog per environment (matching the Dev/Test/Prod
+promotion model in README §14), one schema per medallion layer within it.
 
 ```text
 medicore_dev / medicore_test / medicore_prod      (catalog per environment)
@@ -201,10 +201,10 @@ README §12.
 | Entity | Bronze ingestion | Silver processing | Gold treatment |
 |---|---|---|---|
 | `patients` | Auto Loader, `patients.csv`, schema evolution on | `APPLY CHANGES INTO` (SCD2) on `patient_id` **plus** the identity-resolution/MDM step described below | `dim_patient`, SCD Type 2, keyed by the resolved network-wide patient identity |
-| `providers` | Auto Loader, `providers.json` | `APPLY CHANGES INTO` (SCD1 or SCD2 --- **[ASSUMPTION]** SCD2, since specialty/credential history has analytical value for Provider Performance) | `dim_provider`, SCD Type 2 |
-| `facilities` | Auto Loader, `facilities.json` | `MERGE`/upsert on `facility_id`; low volume, near-static | `dim_facility`, SCD Type 1 (current state only --- **[ASSUMPTION]**, since facility identity rarely needs historical tracking) |
+| `providers` | Auto Loader, `providers.json` | `APPLY CHANGES INTO` (SCD2 --- **[CONFIRMED]**, specialty/credential history has analytical value for Provider Performance) | `dim_provider`, SCD Type 2 |
+| `facilities` | Auto Loader, `facilities.json` | `MERGE`/upsert on `facility_id`; low volume, near-static | `dim_facility`, SCD Type 1 (current state only --- **[CONFIRMED]**, facility identity rarely needs historical tracking) |
 | `encounters` | Auto Loader, `encounters.json` | `MERGE` on `encounter_id` handling status transitions; dedup on late-arriving/duplicate records (Load 5) using event time | `fact_encounter`, incremental append/merge, FKs to `dim_patient`/`dim_provider`/`dim_facility`/`dim_date` |
-| `lab_results` | Auto Loader, `lab_results.parquet` | Append-only with correction handling: latest-value-wins via a sequencing column (result timestamp) when a corrected result arrives (Load 3/5) | `fact_lab_result`, append/merge, FK to `fact_encounter` (or directly to `dim_patient`/`dim_provider`/`dim_facility` via the encounter) |
+| `lab_results` | Auto Loader, `lab_results.parquet` | Append-only, correction handling **[OPEN --- see §7]**: latest-value-wins via a sequencing column, *or* versioned (keep all results, flag current) | `fact_lab_result`, append/merge, FK to `fact_encounter` (or directly to `dim_patient`/`dim_provider`/`dim_facility` via the encounter) |
 | `prescriptions` | Auto Loader, `prescriptions.csv` | `MERGE` on `prescription_id` handling status changes (filled/cancelled, confirmed in Phase 2) | `fact_prescription`, incremental append/merge |
 | `claims` | Auto Loader, `claims.json` | `APPLY CHANGES INTO` on `claim_id` --- the clearest CDC/upsert case (status lifecycle confirmed in Phase 2) | `fact_claim`, grain = one row per claim (1:N from `encounters`, confirmed in Phase 2) |
 
@@ -219,57 +219,160 @@ than silently dropping them (README §9).
 ## 5.1 Identity Resolution / MDM (patients)
 
 Confirmed in Phase 2: `patient_id` is per-facility, not globally unique.
-**[ASSUMPTION --- design not yet detailed]** proposed approach:
+**[CONFIRMED --- fuzzy matching]** staged, three-outcome matching design:
 
 1. Silver `patients` retains the per-facility record as-is (source of
    truth per facility).
-2. A separate Silver table, `patient_identity_xref`, holds the matching
-   logic output: `(facility_id, patient_id) → network_patient_id`,
-   produced by a deterministic/rules-based match (name + DOB + a
-   normalized phone/email, or similar) for Load 2's clean-duplicate case,
-   extendable to fuzzy matching for Load 4's mismatched-demographics
-   case.
-3. `dim_patient` in Gold is built from `patients` joined through
-   `patient_identity_xref`, collapsing per-facility records into one
-   SCD2 dimension row per `network_patient_id`.
-4. Load 5's late correction to an already-resolved match is handled by
+2. A separate Silver table, `patient_identity_xref`
+   (`facility_id, patient_id → network_patient_id, match_method,
+   match_score, matched_at`), holds the matching logic output rather than
+   baking identity resolution into `dim_patient` directly.
+3. **Matching logic**, staged by difficulty:
+   - **Exact/deterministic** (covers Load 2's clean duplicate): normalized
+     name + DOB + phone/email match exactly → auto-match.
+   - **Blocked fuzzy match** (covers Load 4's mismatched-demographics
+     case): candidate pairs are first narrowed via blocking (same DOB +
+     soundex/metaphone of last name, to avoid all-pairs comparison), then
+     scored with a weighted similarity function --- Jaro-Winkler on name,
+     exact/normalized compare on DOB, phone, email. A threshold splits
+     results into three outcomes rather than forcing a binary call:
+     **auto-match**, **auto-reject**, and **needs manual review**
+     (borderline scores land in a `patient_identity_review_queue` table
+     rather than being silently merged or silently kept separate).
+   - **[NOTE]** [Zingg](https://github.com/zinggAI/zingg) is an
+     open-source entity-resolution library that runs natively on Spark
+     and is purpose-built for this kind of matching; it's a viable
+     upgrade path over hand-rolled scoring if we want a more robust
+     matcher later, without changing the surrounding architecture
+     (it would just replace the scoring step in `patient_identity_xref`
+     generation).
+4. `dim_patient` in Gold is built from `patients` joined through
+   `patient_identity_xref` (auto-matched + manually-confirmed rows only),
+   collapsing per-facility records into one SCD2 dimension row per
+   `network_patient_id`.
+5. Load 5's late correction to an already-resolved match is handled by
    re-running the matching step for affected records and updating the
-   xref table --- this is why `patient_identity_xref` is a separate
-   table rather than a one-time transform baked into `dim_patient`
-   directly: it needs to be revisable.
+   xref table --- this is why `patient_identity_xref` is a separate,
+   revisable table rather than a one-time transform.
 
 This keeps the matching logic auditable and separate from the dimensional
-model itself, and gives us a natural place to plug in a more
-sophisticated MDM tool later without reshaping `dim_patient`.
+model itself. Exact matching thresholds/weights are a Phase 4
+implementation detail, not an architecture decision.
+
+## 5.2 Pipeline and Job Design --- **[CONFIRMED]**
+
+- **One Lakeflow Declarative Pipeline** contains the full DAG: all 7
+  entities' Bronze→Silver flows, `patient_identity_xref`, and all
+  Silver→Gold flows (dims + facts). Pipelines are designed to be
+  multi-table DAGs with automatic dependency resolution and shared
+  compute --- splitting per-entity would fragment lineage and add
+  operational overhead without benefit at this project's scale.
+- **One Lakeflow Job** triggers that Pipeline per Load, structured as:
+  1. *(optional pre-check task)* verify the expected Load N files exist
+     under `landing.source_files.<entity>/load_N/` before triggering.
+  2. Run/update the main Pipeline.
+  3. *(optional post task)* e.g. refresh an AI/BI dashboard or send a
+     completion notification --- not required for Phase 3--4, but the Job
+     structure leaves room for it.
+- Future ML/agentic-layer work (README §16) gets its **own** job(s) later
+  --- this one Job's scope stays limited to the Bronze→Gold data pipeline.
 
 ------------------------------------------------------------------------
 
 # 6. PHI/PII Protection
 
-**[ASSUMPTION --- not yet discussed in detail]** mapped from README §11
-onto Unity Catalog mechanisms:
+**[CONFIRMED --- control-table-driven]** rather than hardcoding masking
+rules per column, a single control table drives policy for every PHI/PII
+column across the project.
 
-| Technique | UC mechanism | Applied to |
-|---|---|---|
-| Masking | Column mask (SQL UDF via `ALTER TABLE ... SET MASK`) | Phone, partial SSN display for non-privileged roles |
-| Hashing | Computed column at Silver | SSN/national ID, where original value isn't needed downstream |
-| Tokenization | Computed column at Silver, deterministic token | `patient_id` exposed to lower-privilege consumers as `PAT_xxxxxx` (README §11 example) |
-| Generalization | Computed column at Gold | DOB → birth year only, for roles that don't need exact DOB |
-| Row/column-level access | Unity Catalog row filters + column masks, grants scoped by role | Restricting raw Bronze/Silver PHI to pipeline service principals and governance roles only; analysts get masked/tokenized Gold |
+## 6.1 Control table
+
+`<catalog>.governance.pii_column_policy` (one per environment catalog,
+same catalog-per-env pattern as everything else):
+
+| Column | Purpose |
+|---|---|
+| `entity`, `schema_name`, `table_name`, `column_name` | Identifies the exact column being governed |
+| `classification` | `PHI` \| `PII` \| `SENSITIVE` \| `NONE` |
+| `technique` | `MASK` \| `HASH` \| `TOKENIZE` \| `ENCRYPT` \| `GENERALIZE` \| `NONE` |
+| `visible_to_groups` | `array<string>` --- UC groups allowed to see the *unprotected* value |
+| `reversible` | `boolean` --- true only for `ENCRYPT`; false for hash/tokenize (one-way) |
+| `key_scope` | Databricks secret scope name holding the encryption key, when `reversible = true` |
+| `notes` | Free text --- rationale, e.g. "needed for claims appeal process" |
+
+This table is the single source of truth for "what happens to this
+column and who can see it unprotected" --- new columns get a policy row
+before they're exposed past Bronze, rather than protection logic being
+scattered across transform code.
+
+## 6.2 How it's enforced
+
+- At deployment (via DAB), the control table is read and used to
+  generate/attach Unity Catalog **column masks** to each governed Silver
+  and Gold column. A mask function checks the caller's group membership
+  (`is_account_group_member()`) against `visible_to_groups` for that
+  column and returns either the real value or the protected form.
+- **Masking / Generalization**: mask function returns a redacted/reduced
+  form (e.g. `******3210`, birth year only) for anyone not in
+  `visible_to_groups`.
+- **Hashing / Tokenization**: one-way; the protected form is the only
+  form stored past Silver, so there's nothing to reverse regardless of
+  group membership --- used when downstream processing only needs a
+  stable join key (README §11's `P10001 → PAT_7F91A2` example), not the
+  original value.
+- **Encryption (reversible)**: value is stored via `aes_encrypt()` using
+  a key held in a **Databricks-native secret scope** (not Azure Key
+  Vault-backed, consistent with §1's no-external-Azure-resources
+  constraint). The mask function calls `aes_decrypt()` only for callers
+  in `visible_to_groups`; everyone else gets the ciphertext or a masked
+  placeholder.
+
+## 6.3 Groups (UC account-level groups, one per persona cluster from
+`phase1_business_understanding.md` §1) --- **[ASSUMPTION, please confirm
+naming]**:
+
+| Group | Roughly corresponds to persona(s) |
+|---|---|
+| `grp_clinical_care` | Care Coordinator/Clinician, Clinical Operations Lead |
+| `grp_lab_ops` | Laboratory Operations Manager |
+| `grp_pharmacy_ops` | Pharmacy Manager |
+| `grp_billing_finance` | Revenue Cycle/Billing Manager |
+| `grp_facility_admin` | Facility Administrator |
+| `grp_compliance_governance` | Data Governance/Compliance Officer --- typically the only group with broad `visible_to_groups` access across entities |
+| `grp_data_engineering` | Pipeline/platform builders --- Bronze/Silver access as needed for transforms, not a blanket PHI exemption |
+| `grp_platform_ml` | Platform/Analytics Consumer --- Gold-layer access only, per README §16's "governed data products, not raw PHI" |
 
 ------------------------------------------------------------------------
 
 # 7. Open Items Before Phase 4 (Implementation)
 
-1. Confirm Unity Catalog structure in §3 (catalog-per-environment,
-   schema-per-layer) --- or specify a different convention.
-2. Confirm SCD choice for `dim_provider` (SCD2 proposed) and
-   `dim_facility` (SCD1 proposed).
-3. Confirm the MDM/identity-resolution matching approach in §5.1
-   (deterministic rules vs. a specific fuzzy-matching technique) --- this
-   is currently just a placeholder design.
-4. Confirm the PHI/PII mechanism mapping in §6, and which roles/groups
-   should exist in Unity Catalog for access control.
-5. Confirm whether Lakeflow Jobs should be one job per entity, one job
-   per load, or one job for the whole Bronze→Gold chain per load ---
-   affects DAB job definitions in Phase 4.
+1. **[OPEN]** `lab_results` correction handling (§5 table): latest-wins
+   (overwrite) vs. versioned (keep every result, flag the current one).
+   Versioning fits README §3.4's "Auditability"/"Reproducible processing"
+   outcomes better for a healthcare context --- a corrected lab result is
+   arguably something you want to prove was corrected, not just silently
+   replace --- but it's your call since it also means `fact_lab_result`
+   carries superseded rows that consumers must filter. Leaning versioned
+   unless you'd rather keep it simple.
+2. **[OPEN]** Confirm the `grp_*` UC group names/composition in §6.3, or
+   provide the actual naming convention you want.
+3. **[OPEN]** Confirm the `pii_column_policy` control table's exact
+   column classifications per entity (i.e. actually fill in the table for
+   each PHI/PII column across all 7 entities) --- §6.1 defines the
+   *shape* of the control table, not yet its contents.
+
+**Resolved:**
+- Unity Catalog structure --- catalog-per-environment, schema-per-layer
+  (§3).
+- SCD choices --- `dim_provider` SCD2, `dim_facility` SCD1 (§5).
+- MDM matching approach --- staged exact-match then blocked fuzzy
+  matching (Jaro-Winkler + blocking), three-way outcome
+  (auto-match/auto-reject/manual-review), Zingg noted as an upgrade path
+  (§5.1).
+- PHI/PII mechanism --- control-table-driven (`pii_column_policy`)
+  rather than hardcoded per-column logic, covering mask/hash/
+  tokenize/encrypt/generalize with group-gated, DAB-generated UC column
+  masks; reversible encryption uses Databricks-native secret scopes, not
+  Azure Key Vault (§6).
+- Lakeflow Job granularity --- one Pipeline (full DAG, all entities),
+  one Job triggering it per Load (§5.2).
