@@ -1,81 +1,23 @@
 # MediCore Health Network --- Phase 2: Source Understanding
 
-This document completes the remaining Phase 1 "next milestone" items and
-delivers the Phase 2 output defined in
-`MediCore_Healthcare_Lakehouse_README.md` (sections 4 and 18): business
-personas, business questions, data products, source applications and
-responsibilities, and a source-data contract per entity.
+This document delivers the Phase 2 output defined in `README.md`
+(sections 4 and 18): source applications and responsibilities, entity
+relationships, and a source-data contract per entity.
+
+Phase 1 business-understanding content --- personas, business questions,
+and data products --- lives in `phase1_business_understanding.md`.
 
 > **Note on assumptions:** the base README defines the business scenario,
 > the 7 entities, and the 5 operational application areas, but does not
-> spell out personas, specific questions, or per-entity contract details.
-> Those are drafted here as a reasonable first pass grounded in the
-> business scenario, and are flagged as **[ASSUMPTION]** where they go
-> beyond what the README states directly. Please correct/override anything
-> that doesn't match your intent before this is treated as final.
+> spell out per-entity contract details. Those are drafted here as a
+> reasonable first pass grounded in the business scenario, and are
+> flagged as **[ASSUMPTION]** where they go beyond what the README states
+> directly. Please correct/override anything that doesn't match your
+> intent before this is treated as final.
 
 ------------------------------------------------------------------------
 
-# 1. Business Personas
-
-| Persona | Role | Primary interest |
-|---|---|---|
-| Facility Administrator | Runs day-to-day operations at a hospital/clinic | Facility utilization, patient volumes |
-| Clinical Operations Lead / CMO | Oversees clinical quality and staffing across the network | Provider workload, specialty performance, encounter trends |
-| Care Coordinator / Clinician | Delivers direct patient care | Patient 360 view: history across facilities, encounters, labs, meds |
-| Laboratory Operations Manager | Runs lab services | Lab volumes, turnaround time, abnormal-result trends |
-| Pharmacy Manager | Runs prescription/medication services | Prescription volumes and patterns |
-| Revenue Cycle / Billing Manager | Owns claims and reimbursement performance | Claim volumes, denial rates, processing time, denial reasons |
-| Data Governance / Compliance Officer | Owns PHI/PII risk and regulatory compliance | Access control, masking, auditability, lineage |
-| Platform/Analytics Consumer **[ASSUMPTION]** | Future ML/agentic applications and BI tooling | Governed Gold-layer data products, not raw PHI |
-
-------------------------------------------------------------------------
-
-# 2. Business Questions
-
-Directly derived from the outcomes in README section 3.
-
-**Patient 360**
-- What is a given patient's full history of encounters, providers,
-  facilities, diagnoses, labs, prescriptions and claims?
-- Has the same patient been seen at more than one MediCore facility?
-
-**Clinical & Operational Intelligence**
-- Which facilities have increasing/decreasing patient volumes?
-- How is provider workload distributed across facilities and specialties?
-- Which specialties see the highest demand, and how is that trending?
-- Are there abnormal laboratory-result trends by facility or test type?
-- What are prescription patterns by specialty, facility, or medication?
-
-**Claims & Revenue Intelligence**
-- What is the claim approval/denial rate, overall and by facility?
-- What are the most common denial reasons?
-- What is the average/outlier claim processing time?
-- What is total and trending claim value by facility?
-
-**Trusted & Governed Data**
-- Which datasets/columns carry PHI and require masking or restricted access?
-- Can every Gold-layer figure be traced back to its Bronze source record?
-
-------------------------------------------------------------------------
-
-# 3. Data Products
-
-Restated from README section 10 for traceability --- each maps to one or
-more business questions above:
-
-| Data product | Answers |
-|---|---|
-| Patient 360 | Patient history questions |
-| Facility Performance | Facility volume/utilization questions |
-| Provider Performance | Provider workload questions |
-| Clinical Activity | Encounter/specialty trend questions |
-| Laboratory Analytics | Lab volume/abnormal-trend questions |
-| Claims Analytics | Denial rate, processing time, claim value questions |
-
-------------------------------------------------------------------------
-
-# 4. Source Applications and Responsibilities
+# 1. Source Applications and Responsibilities
 
 README section 2 names five operational application areas. Facilities and
 providers are treated here as centrally-maintained reference/master data
@@ -93,7 +35,7 @@ rather than being owned by one of the five transactional apps
 
 ------------------------------------------------------------------------
 
-# 5. Entity Relationships
+# 2. Entity Relationships
 
 ```text
 facilities ──1:N── providers        (a provider may serve multiple facilities → treat as N:M [ASSUMPTION])
@@ -114,9 +56,9 @@ section 10.
 
 ------------------------------------------------------------------------
 
-# 6. Source Data Contracts
+# 3. Source Data Contracts
 
-## 6.1 `patients`
+## 3.1 `patients`
 
 | Attribute | Detail |
 |---|---|
@@ -137,7 +79,7 @@ per-facility. If per-facility, true Patient 360 requires an
 identity-resolution/MPI step not yet described --- worth deciding
 explicitly before Gold design.
 
-## 6.2 `providers`
+## 3.2 `providers`
 
 | Attribute | Detail |
 |---|---|
@@ -152,7 +94,7 @@ explicitly before Gold design.
 | Likely DQ issues | Invalid provider references surfacing downstream in `encounters` (Load 4) |
 | Schema evolution | Possible added sub-specialty/credential attributes |
 
-## 6.3 `facilities`
+## 3.3 `facilities`
 
 | Attribute | Detail |
 |---|---|
@@ -167,7 +109,7 @@ explicitly before Gold design.
 | Likely DQ issues | Minimal, given small volume; possible naming inconsistencies |
 | Schema evolution | Possible added attributes (bed count, department list) |
 
-## 6.4 `encounters`
+## 3.4 `encounters`
 
 | Attribute | Detail |
 |---|---|
@@ -182,7 +124,7 @@ explicitly before Gold design.
 | Likely DQ issues | Late-arriving encounters, duplicate late-arriving records (Load 5) |
 | Schema evolution | Possible added visit-reason/diagnosis-coding fields (Load 3) |
 
-## 6.5 `lab_results`
+## 3.5 `lab_results`
 
 | Attribute | Detail |
 |---|---|
@@ -197,7 +139,7 @@ explicitly before Gold design.
 | Likely DQ issues | Corrected lab information (Load 3), late-arriving results, duplicate late-arriving records, corrected results (Load 5) |
 | Schema evolution | Possible additional test-panel attributes |
 
-## 6.6 `prescriptions`
+## 3.6 `prescriptions`
 
 | Attribute | Detail |
 |---|---|
@@ -212,7 +154,7 @@ explicitly before Gold design.
 | Likely DQ issues | Not named explicitly in README; general Load 4 patterns (duplicates, invalid categorical values) assumed to apply **[ASSUMPTION]** |
 | Schema evolution | Possible added dosage/frequency fields |
 
-## 6.7 `claims`
+## 3.7 `claims`
 
 | Attribute | Detail |
 |---|---|
@@ -229,7 +171,7 @@ explicitly before Gold design.
 
 ------------------------------------------------------------------------
 
-# 7. Open Items Before Phase 3 (Architecture)
+# 4. Open Items Before Phase 3 (Architecture)
 
 1. Confirm whether `patient_id` is network-global or per-facility (drives
    whether an MPI/identity-resolution step is needed before `dim_patient`).
