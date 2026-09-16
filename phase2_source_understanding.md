@@ -42,7 +42,7 @@ patients   ──1:N── encounters
 
 encounters ──1:N── lab_results
 encounters ──1:N── prescriptions
-encounters ──1:N── claims           (assume one facility/encounter can generate multiple claims/line items)
+encounters ──1:N── claims           (one encounter can generate multiple claims/line items --- [CONFIRMED])
 ```
 
 `encounters` is the fan-out point: nearly every downstream fact
@@ -60,21 +60,25 @@ section 10.
 | Attribute | Detail |
 |---|---|
 | Business meaning | A person registered to receive care at any MediCore facility |
-| Business key | `patient_id` (assigned at registration) |
+| Business key | `patient_id`, assigned at registration --- **not** globally unique across the network (per-facility) |
 | Relationships | 1:N to `encounters` |
 | Update pattern | Mutable --- demographic changes (address, phone, email, insurance) over time |
 | Append-only / event? | No --- master-like entity; SCD Type 2 candidate in Gold (`dim_patient`) |
 | Source timestamps | `created_at`/registration date, `updated_at`/last-modified date |
 | Ingestion characteristics | `patients.csv`, batch delivery per load |
 | PII/PHI | Name, DOB, SSN/national ID, phone, email, address, insurance ID --- high sensitivity |
-| Likely DQ issues | Missing patient identifiers, malformed emails, possible duplicate patient records across facilities (no cross-facility MPI implied by README), late-arriving demographic corrections (Load 4/5) |
+| Likely DQ issues | Missing patient identifiers, malformed emails, duplicate/overlapping patient records across facilities (expected, not incidental --- see below), late-arriving demographic corrections (Load 4/5) |
 | Schema evolution | Additional attributes possible in Load 3 (e.g. emergency contact, preferred language) |
 
-**[ASSUMPTION / open question]:** the README doesn't say whether
-`patient_id` is globally unique across the network or assigned
-per-facility. If per-facility, true Patient 360 requires an
-identity-resolution/MPI step not yet described --- worth deciding
-explicitly before Gold design.
+**[CONFIRMED]** `patient_id` is per-facility, not globally unique. The
+network is assumed to have grown in part through acquisition of existing
+facility groups, each bringing its own legacy patient identifiers, so the
+same real-world patient can legitimately appear as separate records under
+different facilities. True Patient 360 therefore requires an explicit
+identity resolution / Master Data Management (MDM) step in Silver to
+reconcile per-facility patient records into a single network-wide
+identity before `dim_patient` is built. This is now reflected in
+`README.md` sections 2, 3.1, and 9.
 
 ## 3.2 `providers`
 
@@ -143,12 +147,12 @@ explicitly before Gold design.
 | Business meaning | Medications prescribed to a patient during an encounter |
 | Business key | `prescription_id` |
 | Relationships | N:1 to `encounters` (transitively to patient/provider) |
-| Update pattern | Primarily append; status may change (filled/cancelled) **[ASSUMPTION]** |
-| Append-only / event? | Largely event/append-only |
+| Update pattern | Primarily append; status may change (filled/cancelled) --- **[CONFIRMED]** |
+| Append-only / event? | Largely event/append-only, with status transitions handled like `encounters` (append + in-place status update) |
 | Source timestamps | Prescribed date, filled date |
 | Ingestion characteristics | `prescriptions.csv`, batch from Pharmacy system |
 | PII/PHI | Medication data tied to a patient --- PHI |
-| Likely DQ issues | Not named explicitly in README; general Load 4 patterns (duplicates, invalid categorical values) assumed to apply **[ASSUMPTION]** |
+| Likely DQ issues | General Load 4 patterns (duplicates, invalid categorical values) apply here too --- **[CONFIRMED]** |
 | Schema evolution | Possible added dosage/frequency fields |
 
 ## 3.7 `claims`
@@ -170,13 +174,13 @@ explicitly before Gold design.
 
 # 4. Open Items Before Phase 3 (Architecture)
 
-1. Confirm whether `patient_id` is network-global or per-facility (drives
-   whether an MPI/identity-resolution step is needed before `dim_patient`).
-2. Confirm encounter → claim cardinality (1:1 vs 1:N) to finalize
-   `fact_claim` grain.
-3. Confirm whether any entity has a genuine multi-facility identity overlap
-   scenario intended for Load 2+ (e.g. a patient seen at two facilities),
-   since this directly exercises the Patient 360 outcome.
+1. **[STILL OPEN]** Confirm whether any entity has a genuine
+   multi-facility identity overlap scenario intended for Load 2+ (e.g. the
+   same real-world patient appearing under two different facility
+   `patient_id`s). Given `patient_id` is now confirmed non-global (see
+   below), this scenario is what would actually exercise the MDM /
+   identity-resolution step in Load 2--5 --- worth confirming explicitly
+   which load(s) introduce it.
 
 **Resolved:**
 - `facilities`/`providers` ownership --- independent Facility & Provider
@@ -185,3 +189,13 @@ explicitly before Gold design.
 - `facilities`↔`providers` cardinality --- N:M, since a provider can work
   across multiple facilities in the same network depending on
   infrastructure/specialty availability at each site.
+- `encounter`→`claims` cardinality --- 1:N, one encounter can generate
+  multiple claims/line items.
+- `patient_id` scope --- per-facility, not globally unique, due to the
+  network having grown through acquisition of existing facility groups.
+  Requires a Silver-layer identity resolution / MDM step; now reflected in
+  `README.md` sections 2, 3.1, and 9.
+- `prescriptions` update pattern --- status can change post-creation
+  (filled/cancelled), same as `encounters`.
+- `prescriptions` DQ issues --- general Load 4 patterns (duplicates,
+  invalid categorical values) apply here too.
