@@ -485,7 +485,13 @@ Typical responsibilities:
 -   Incremental processing
 -   Change handling
 -   Cross-facility patient identity resolution (MDM), reconciling
-    per-facility `patient_id` values into a single network-wide identity
+    per-facility `patient_id` values into a single network-wide identity.
+    Initial matching is hand-rolled (deterministic exact-match, then
+    blocked fuzzy matching); adopting a dedicated entity-resolution
+    library such as [Zingg](https://github.com/zinggAI/zingg), which runs
+    natively on Spark, is a candidate future enhancement once the
+    hand-rolled approach's limits are better understood (see
+    `phase3_architecture.md` section 5.1)
 -   PHI/PII protection
 -   Enrichment where justified
 
