@@ -70,6 +70,15 @@ These applications generate data such as:
 In the real world, these applications would continuously generate events
 and/or source-system changes.
 
+The network is assumed to have grown in part through acquisition of
+existing facility groups, each bringing its own legacy patient
+identifiers. As a result, `patient_id` is **not** assumed to be globally
+unique across the network --- the same real-world patient may exist as
+separate records under different facilities. Producing a unified,
+network-wide patient identity therefore requires an explicit identity
+resolution / Master Data Management (MDM) step rather than a simple key
+match (see sections 3.1 and 9).
+
 For this learning project, we simulate those changes through successive
 file deliveries:
 
@@ -87,6 +96,12 @@ The platform is intended to support the following business outcomes.
 
 Provide a trusted, governed view of a patient's healthcare activity
 across the healthcare network.
+
+Because `patient_id` is not globally unique across facilities (see
+section 2), this outcome depends on a Silver-layer identity resolution /
+MDM step that reconciles per-facility patient records into a single
+network-wide patient identity before a trustworthy Patient 360 view is
+possible.
 
 A patient view should eventually bring together:
 
@@ -261,6 +276,10 @@ Examples:
 -   Patient demographic updates
 -   Provider changes
 -   Claim-status changes
+-   A patient known at one facility registers at a second facility under a
+    new, facility-local `patient_id` (clean cross-facility duplicate ---
+    first scenario exercising identity resolution / MDM, see sections
+    3.1 and 9)
 
 This load introduces the first meaningful decisions around:
 
@@ -306,6 +325,9 @@ Examples:
 -   Malformed email addresses
 -   Invalid provider references
 -   Invalid claim statuses
+-   Cross-facility patient duplicates with mismatched demographics (e.g.
+    name/contact discrepancies) --- a harder identity-resolution/MDM
+    matching case than the clean duplicate introduced in Load 2
 
 This load is used to demonstrate appropriate data-quality handling,
 including expectations and quarantine/rejection strategies where
@@ -324,7 +346,9 @@ Examples:
 -   Duplicate late-arriving records
 -   Corrected lab results
 -   Updated claims
--   Patient demographic corrections
+-   Patient demographic corrections, including a correction to one side
+    of an already-resolved cross-facility identity match, requiring
+    re-evaluation of the MDM linkage
 
 A key scenario is:
 
@@ -460,6 +484,8 @@ Typical responsibilities:
 -   Business-rule validation
 -   Incremental processing
 -   Change handling
+-   Cross-facility patient identity resolution (MDM), reconciling
+    per-facility `patient_id` values into a single network-wide identity
 -   PHI/PII protection
 -   Enrichment where justified
 
