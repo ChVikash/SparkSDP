@@ -276,6 +276,10 @@ Examples:
 -   Patient demographic updates
 -   Provider changes
 -   Claim-status changes
+-   A patient known at one facility registers at a second facility under a
+    new, facility-local `patient_id` (clean cross-facility duplicate ---
+    first scenario exercising identity resolution / MDM, see sections
+    3.1 and 9)
 
 This load introduces the first meaningful decisions around:
 
@@ -321,6 +325,9 @@ Examples:
 -   Malformed email addresses
 -   Invalid provider references
 -   Invalid claim statuses
+-   Cross-facility patient duplicates with mismatched demographics (e.g.
+    name/contact discrepancies) --- a harder identity-resolution/MDM
+    matching case than the clean duplicate introduced in Load 2
 
 This load is used to demonstrate appropriate data-quality handling,
 including expectations and quarantine/rejection strategies where
@@ -339,7 +346,9 @@ Examples:
 -   Duplicate late-arriving records
 -   Corrected lab results
 -   Updated claims
--   Patient demographic corrections
+-   Patient demographic corrections, including a correction to one side
+    of an already-resolved cross-facility identity match, requiring
+    re-evaluation of the MDM linkage
 
 A key scenario is:
 

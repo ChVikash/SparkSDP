@@ -174,15 +174,21 @@ identity before `dim_patient` is built. This is now reflected in
 
 # 4. Open Items Before Phase 3 (Architecture)
 
-1. **[STILL OPEN]** Confirm whether any entity has a genuine
-   multi-facility identity overlap scenario intended for Load 2+ (e.g. the
-   same real-world patient appearing under two different facility
-   `patient_id`s). Given `patient_id` is now confirmed non-global (see
-   below), this scenario is what would actually exercise the MDM /
-   identity-resolution step in Load 2--5 --- worth confirming explicitly
-   which load(s) introduce it.
+All items are now resolved.
 
 **Resolved:**
+- Multi-facility identity overlap scenarios --- confirmed, staged across
+  three loads with increasing difficulty:
+  - **Load 2**: clean cross-facility duplicate (same patient registers at
+    a second facility under a new `patient_id`, demographics match
+    exactly) --- first case exercising identity resolution / MDM.
+  - **Load 4**: messier cross-facility duplicate with mismatched
+    demographics (name/contact discrepancies) --- harder matching case,
+    consistent with Load 4's data-quality-degradation theme.
+  - **Load 5**: a correction to one side of an already-resolved
+    cross-facility match arrives late, requiring re-evaluation of the MDM
+    linkage --- consistent with Load 5's late-arriving/correction theme.
+  Reflected in `README.md` Load 2, Load 4, and Load 5 sections.
 - `facilities`/`providers` ownership --- independent Facility & Provider
   Directory system, kept separate from the 5 transactional apps to avoid
   coupling reference data to transactional lifecycles.
