@@ -239,13 +239,15 @@ Confirmed in Phase 2: `patient_id` is per-facility, not globally unique.
      **auto-match**, **auto-reject**, and **needs manual review**
      (borderline scores land in a `patient_identity_review_queue` table
      rather than being silently merged or silently kept separate).
-   - **[NOTE]** [Zingg](https://github.com/zinggAI/zingg) is an
-     open-source entity-resolution library that runs natively on Spark
-     and is purpose-built for this kind of matching; it's a viable
-     upgrade path over hand-rolled scoring if we want a more robust
-     matcher later, without changing the surrounding architecture
-     (it would just replace the scoring step in `patient_identity_xref`
-     generation).
+   - **[CONFIRMED --- future enhancement]** Matching is hand-rolled for
+     now (exact-match + blocked fuzzy scoring above). Adopting
+     [Zingg](https://github.com/zinggAI/zingg) --- an open-source
+     entity-resolution library that runs natively on Spark, purpose-built
+     for this kind of matching --- is a planned future upgrade once the
+     hand-rolled approach's limits are better understood; it would
+     replace the scoring step in `patient_identity_xref` generation
+     without changing the surrounding architecture. Mentioned in
+     `README.md` section 9.
 4. `dim_patient` in Gold is built from `patients` joined through
    `patient_identity_xref` (auto-matched + manually-confirmed rows only),
    collapsing per-facility records into one SCD2 dimension row per
@@ -367,8 +369,9 @@ naming]**:
 - SCD choices --- `dim_provider` SCD2, `dim_facility` SCD1 (§5).
 - MDM matching approach --- staged exact-match then blocked fuzzy
   matching (Jaro-Winkler + blocking), three-way outcome
-  (auto-match/auto-reject/manual-review), Zingg noted as an upgrade path
-  (§5.1).
+  (auto-match/auto-reject/manual-review), hand-rolled for now; Zingg
+  confirmed as a planned future upgrade, mentioned in `README.md`
+  section 9 (§5.1).
 - PHI/PII mechanism --- control-table-driven (`pii_column_policy`)
   rather than hardcoded per-column logic, covering mask/hash/
   tokenize/encrypt/generalize with group-gated, DAB-generated UC column
