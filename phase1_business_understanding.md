@@ -9,12 +9,6 @@ builds directly on those without repeating them.
 Source-side Phase 2 content (source applications, entity relationships,
 per-entity source-data contracts) lives in `phase2_source_understanding.md`.
 
-> **Note on assumptions:** the base `README.md` defines the business
-> scenario and outcomes, but does not spell out personas or specific
-> questions. Those are drafted here as a reasonable first pass grounded in
-> the business scenario, and are flagged as **[ASSUMPTION]** where they go
-> beyond what `README.md` states directly. Please correct/override
-> anything that doesn't match your intent before this is treated as final.
 
 ------------------------------------------------------------------------
 
@@ -29,7 +23,7 @@ per-entity source-data contracts) lives in `phase2_source_understanding.md`.
 | Pharmacy Manager | Runs prescription/medication services | Prescription volumes and patterns |
 | Revenue Cycle / Billing Manager | Owns claims and reimbursement performance | Claim volumes, denial rates, processing time, denial reasons |
 | Data Governance / Compliance Officer | Owns PHI/PII risk and regulatory compliance | Access control, masking, auditability, lineage |
-| Platform/Analytics Consumer **[ASSUMPTION]** | Future ML/agentic applications and BI tooling | Governed Gold-layer data products, not raw PHI |
+| Platform/Analytics Consumer | Future ML/agentic applications and BI tooling | Governed Gold-layer data products, not raw PHI |
 
 ------------------------------------------------------------------------
 
