@@ -244,6 +244,40 @@ The source system is conceptually continuous.
 The project simulates that continuous operation through five successive
 loads.
 
+## How this differs from real ingestion
+
+The file deliveries below are a **simulation device**, not the ingestion
+design. MediCore's operational applications are databases and packaged
+systems, not systems that drop files into object storage, so nothing
+downstream should assume files are how data really arrives.
+
+A real deployment would ingest by source type (see section 8):
+
+``` text
+Relational OLTP sources (SQL Server, PostgreSQL, ...)
+        ↓
+Managed CDC connector + ingestion gateway, replicating changes continuously
+
+Packaged/ERP sources (SAP and similar)
+        ↓
+A connector that understands the source -- a partner tool, or a service
+such as Azure Data Factory -- landing changes for the lakehouse
+
+Genuine file feeds (partner labs, payer remittances, ...)
+        ↓
+Auto Loader
+```
+
+Files are used here because they let one repository reproduce five
+distinct source behaviours -- schema evolution, quality degradation,
+late arrival, corrections -- deterministically and without standing up
+operational databases to change underneath us. What matters for the rest
+of the project is the *shape* of each load's change, which is the same
+whether it arrives as a file or as a CDC feed.
+
+Only the landing mechanism is simulated. Everything from Bronze onwards
+is built as it would really be built.
+
 ## Load 1 --- Baseline
 
 Initial population of the healthcare network.
@@ -465,7 +499,32 @@ These fields will help us reason about:
 -   Source provenance
 -   Load-level debugging
 
-Auto Loader is the planned ingestion mechanism for file arrival.
+## Ingestion mechanism
+
+Auto Loader is the ingestion mechanism **for file arrival**, and is what
+this project uses, because the simulated source delivers files into a
+Volume (section 5).
+
+That is a property of the simulation, not a recommendation for every
+source. The mechanism should follow the source, the same way every other
+decision in this project does:
+
+| Source type | Mechanism | Why |
+|---|---|---|
+| Relational OLTP (SQL Server, PostgreSQL, MySQL, Oracle) | Lakeflow Connect database connector, via its ingestion gateway | The gateway reads the database's own change stream, so changes replicate continuously without export jobs, and deletes and updates arrive as changes rather than having to be inferred |
+| SaaS applications | Lakeflow Connect managed connector where one exists | Avoids hand-maintaining API pagination, auth and incremental bookmarks |
+| Packaged/ERP systems (SAP and similar) | A connector that understands the source's semantics --- a partner tool, or a service such as Azure Data Factory | Business meaning lives in the application layer, not the tables underneath; extracting raw tables shifts that burden downstream |
+| Genuine file feeds (partner labs, payer remittances) | Auto Loader | Incremental, schema-evolution aware, tracks processed files without bookkeeping |
+| High-volume events/telemetry | Direct streaming ingest | Neither files nor CDC fit a continuous event stream |
+
+For MediCore's seven entities, a real deployment would be mostly the
+first row: patient management, encounters, laboratory, pharmacy and
+claims are all operational databases, so they would replicate through
+CDC rather than being exported to files.
+
+The consequence for this project is that Bronze must not depend on
+file-specific behaviour beyond the metadata columns above. `_source_file`
+is provenance, not a processing key.
 
 ------------------------------------------------------------------------
 
@@ -649,6 +708,14 @@ Expectations
 Incremental file arrival
         ↓
 Auto Loader
+
+Continuously changing operational database
+        ↓
+Managed CDC connector + ingestion gateway
+
+Source whose meaning lives in its application layer (SAP and similar)
+        ↓
+A connector built for that source, or an external service such as ADF
 
 Declarative transformation requirements
         ↓

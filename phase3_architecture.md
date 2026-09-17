@@ -34,6 +34,12 @@ layer.
   incrementally --- Auto Loader supports Volume paths the same way it
   supports cloud storage paths, so this substitution doesn't change the
   ingestion pattern, only where the bytes physically live.
+- **Files stand in for connectors**: the operational sources are
+  databases, so a real deployment would replicate them through a managed
+  CDC connector rather than receiving files at all. The file drop is a
+  simulation device that keeps the five load behaviours reproducible in
+  one repository; see §4.1 for what that substitutes for and what it
+  leaves unchanged.
 - **[NOTED, agreed]** In a real deployment this project would use an
   external ADLS Gen2 account + UC external location/storage credential
   instead of a managed volume. Called out as a deliberate, documented
@@ -186,9 +192,37 @@ Since there's no real operational application generating events, Load
    newly ingested Bronze rows.
 
 This means "Load N" is a **file-drop + job-trigger event**, not a
-continuously running stream --- appropriate for a learning project
-simulating batch-oriented source systems (matches README §8's note that
-"Auto Loader is the planned ingestion mechanism for file arrival").
+continuously running stream.
+
+## 4.1 What is simulated, and what is not
+
+The files are produced by `tools/generate_source_data.py`, which writes
+them with pandas from the driver. That generator is a stand-in for the
+operational applications; it is not an ingestion component and nothing in
+the pipeline depends on it.
+
+In a real deployment MediCore's sources are operational databases, and
+ingestion would follow the source type rather than the file drop (see
+README §8):
+
+| Source | Real mechanism |
+|---|---|
+| Patient management, encounters, laboratory, pharmacy, claims | Lakeflow Connect database connector with its ingestion gateway, replicating changes continuously via CDC |
+| An ERP-style source such as SAP, were one in scope | A connector that understands the source, or an external service such as Azure Data Factory landing changes |
+| A genuine file feed, e.g. a partner lab or payer remittance | Auto Loader, exactly as used here |
+
+The substitution is deliberate and contained. A CDC feed and a file drop
+deliver the same *shape* of change -- inserts, updates, late arrivals,
+corrections -- so the Silver and Gold designs in sections 5 and 6 are
+unaffected by which one is upstream. What would change is only the
+Bronze entry point: a CDC connector supplies change metadata
+(operation type, commit sequence) that the file simulation has to convey
+through the record's own timestamps instead.
+
+Bronze therefore treats `_source_file` as provenance only. Anything
+keyed on file arrival would have to be reworked when a real connector
+replaced the simulation; anything keyed on business timestamps and keys
+would not.
 
 ------------------------------------------------------------------------
 

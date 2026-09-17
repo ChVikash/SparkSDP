@@ -55,6 +55,15 @@ section 10.
 
 # 3. Source Data Contracts
 
+The **ingestion characteristics** row in each contract below describes how
+the entity is delivered *in this project*, where all seven arrive as files
+(README §6). That is a simulation device. These are operational databases,
+so a real deployment would replicate them through a managed CDC connector
+instead --- see README §8 for the mechanism per source type, and
+`phase3_architecture.md` §4.1 for what that substitution does and does not
+change. Every other row --- business key, update pattern, PHI, and so on ---
+is a property of the source itself and holds either way.
+
 ## 3.1 `patients`
 
 | Attribute | Detail |
