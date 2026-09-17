@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Simulated source-system files. Regenerate with:
+#   python3 tools/generate_source_data.py --load <n>
+# Output is deterministic for a given seed, so there is nothing to preserve
+# here that the generator cannot reproduce byte-for-byte.
+generated_data/

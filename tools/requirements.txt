@@ -1,0 +1,3 @@
+# Dependencies for the source-data generator only (not the Databricks
+# pipelines, which run on the cluster runtime).
+pyarrow>=14.0
