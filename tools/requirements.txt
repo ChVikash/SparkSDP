@@ -1,8 +1,4 @@
 # Dependencies for running the source-data generator outside Databricks.
-# On a cluster both are already present in the runtime.
-
-# Local writer backend only. Not needed when writing through Spark.
+# Both are already present in the Databricks runtime.
+pandas>=2.0
 pyarrow>=14.0
-
-# Optional: only to run the Spark writer backend off-cluster.
-# pyspark>=3.5

@@ -2,14 +2,14 @@
 # MAGIC %md
 # MAGIC # Generate simulated source files into the landing Volume
 # MAGIC
-# MAGIC Runs the generator from `tools/data_generator` against the active Spark
-# MAGIC session, writing one load's files into the Unity Catalog Volume that
-# MAGIC stands in for source-system file delivery
-# MAGIC (`phase3_architecture.md` sections 1 and 3).
+# MAGIC Runs the generator from `tools/data_generator`, writing one load's files
+# MAGIC into the Unity Catalog Volume that stands in for source-system file
+# MAGIC delivery (`phase3_architecture.md` sections 1 and 3).
 # MAGIC
-# MAGIC Works as an interactive notebook or as a Lakeflow Job task. The same
-# MAGIC generator runs outside Databricks via
-# MAGIC `python3 tools/generate_source_data.py`.
+# MAGIC Writing is driver-side pandas, so each entity lands as a single properly
+# MAGIC named file and nothing here needs a SparkContext -- it runs on
+# MAGIC serverless, dedicated and standard access mode alike. The same generator
+# MAGIC runs outside Databricks via `python3 tools/generate_source_data.py`.
 
 # COMMAND ----------
 
@@ -24,8 +24,7 @@ for candidate in (os.getcwd(), os.path.join(os.getcwd(), "tools")):
     if candidate not in sys.path:
         sys.path.insert(0, candidate)
 
-from data_generator import spark_writers
-from generate_source_data import build_load
+from generate_source_data import build_load, write_load
 
 # COMMAND ----------
 
@@ -64,11 +63,8 @@ data = build_load(
     int(dbutils.widgets.get("encounters")),
 )
 
-for entity, rows in data.items():
-    target = spark_writers.write_entity(
-        spark, entity, rows, f"{out_dir}/{entity}/load_{load}"
-    )
-    print(f"{entity:<15} {len(rows):>7,} rows  ->  {target}")
+for entity, count, target in write_load(data, out_dir, load):
+    print(f"{entity:<15} {count:>7,} rows  ->  {target}")
 
 # COMMAND ----------
 

@@ -1,14 +1,21 @@
-"""Local filesystem writer backend.
+"""Writes a load's records out as source-system file deliveries.
 
-Used when no Spark session is available. Produces the same filenames, column
-order and timestamp formatting as the Spark backend (see spark_writers.py).
+Writing happens on the driver with pandas, which produces one properly named
+file per entity rather than Spark's part-file directory. That keeps the
+landing zone looking like a real source extract, keeps `_source_file` in
+Bronze meaningful, and works unchanged on serverless, dedicated and standard
+access mode, since Unity Catalog Volume paths are reachable from the driver
+and nothing here needs a SparkContext.
+
+Parquet goes through pyarrow rather than pandas so the column types in
+schemas.py are written exactly as declared; pandas would widen int32 and turn
+the date columns into timestamps.
 """
 
-import csv
-import json
 from datetime import date, datetime
 from pathlib import Path
 
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -23,26 +30,29 @@ def _serialise(value):
     return value
 
 
+def _frame(rows: list[dict], columns: list[str]) -> pd.DataFrame:
+    """Build a text-ready frame.
+
+    dtype=object throughout: pandas would otherwise promote an integer column
+    containing nulls to float and write `5.0` where the source system wrote
+    `5`.
+    """
+    serialised = [
+        {column: _serialise(row.get(column)) for column in columns} for row in rows
+    ]
+    return pd.DataFrame(serialised, columns=columns, dtype=object)
+
+
 def _write_csv(path: Path, rows: list[dict], columns: list[str]) -> None:
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        # csv defaults to CRLF; Spark writes LF, and the two backends are
-        # meant to produce byte-identical files.
-        writer = csv.DictWriter(
-            handle, fieldnames=columns, extrasaction="raise", lineterminator="\n"
-        )
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({column: _serialise(row.get(column)) for column in columns})
+    _frame(rows, columns).to_csv(path, index=False, lineterminator="\n")
 
 
 def _write_jsonl(path: Path, rows: list[dict], columns: list[str]) -> None:
     """Newline-delimited JSON: one object per line, which is what Auto Loader
     reads by default without multiLine handling."""
-    with path.open("w", encoding="utf-8") as handle:
-        for row in rows:
-            payload = {column: _serialise(row.get(column)) for column in columns}
-            handle.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
-            handle.write("\n")
+    _frame(rows, columns).to_json(
+        path, orient="records", lines=True, force_ascii=False
+    )
 
 
 def _write_parquet(path: Path, rows: list[dict], schema: pa.Schema) -> None:
@@ -52,11 +62,7 @@ def _write_parquet(path: Path, rows: list[dict], schema: pa.Schema) -> None:
 
 
 def write_entity(entity: str, rows: list[dict], load_dir: str) -> str:
-    """Write one entity's rows into `load_dir`. Returns the file written.
-
-    Unlike the Spark backend this names the file itself, matching the source
-    filenames in README.md section 6.
-    """
+    """Write one entity's rows into `load_dir`. Returns the file written."""
     spec = schemas.ENTITIES[entity]
     directory = Path(load_dir)
     directory.mkdir(parents=True, exist_ok=True)

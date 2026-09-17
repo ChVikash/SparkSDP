@@ -1,8 +1,7 @@
 """Single source of truth for the source-file schemas.
 
-Column order, types, delivery format and filename are declared once here and
-translated for whichever writer backend is in use, so the local and Spark
-backends cannot drift apart.
+Column order, types, delivery format and filename are declared once here, so
+the generated files and anything reading them agree on one definition.
 
 Type vocabulary: string, int, double, boolean, date, timestamp, array<string>.
 """
@@ -153,13 +152,6 @@ ENTITIES: dict[str, dict] = {
     },
 }
 
-# Applied by both backends so the CSV and JSON deliveries are byte-identical
-# whichever one produced them. Parquet carries its types natively, so the two
-# differ only in timestamp precision (pyarrow micros, Spark nanos).
-TIMESTAMP_FORMAT_JAVA = "yyyy-MM-dd'T'HH:mm:ss"
-DATE_FORMAT_JAVA = "yyyy-MM-dd"
-
-
 def column_names(entity: str) -> list[str]:
     return [name for name, _ in ENTITIES[entity]["columns"]]
 
@@ -178,24 +170,4 @@ def pyarrow_schema(entity: str):
     }
     return pa.schema(
         [(name, mapping[kind]) for name, kind in ENTITIES[entity]["columns"]]
-    )
-
-
-def spark_schema(entity: str):
-    from pyspark.sql import types as T
-
-    mapping = {
-        "string": T.StringType(),
-        "int": T.IntegerType(),
-        "double": T.DoubleType(),
-        "boolean": T.BooleanType(),
-        "date": T.DateType(),
-        "timestamp": T.TimestampType(),
-        "array<string>": T.ArrayType(T.StringType()),
-    }
-    return T.StructType(
-        [
-            T.StructField(name, mapping[kind], nullable=True)
-            for name, kind in ENTITIES[entity]["columns"]
-        ]
     )
