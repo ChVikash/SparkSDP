@@ -51,15 +51,22 @@ def _write_parquet(path: Path, rows: list[dict], schema: pa.Schema) -> None:
     pq.write_table(table, path, compression="snappy")
 
 
-def write_entity(entity: str, rows: list[dict], target: str) -> None:
-    path = Path(target)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fmt = schemas.ENTITIES[entity]["format"]
+def write_entity(entity: str, rows: list[dict], load_dir: str) -> str:
+    """Write one entity's rows into `load_dir`. Returns the file written.
+
+    Unlike the Spark backend this names the file itself, matching the source
+    filenames in README.md section 6.
+    """
+    spec = schemas.ENTITIES[entity]
+    directory = Path(load_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / spec["filename"]
     columns = schemas.column_names(entity)
 
-    if fmt == "csv":
+    if spec["format"] == "csv":
         _write_csv(path, rows, columns)
-    elif fmt == "json":
+    elif spec["format"] == "json":
         _write_jsonl(path, rows, columns)
     else:
         _write_parquet(path, rows, schemas.pyarrow_schema(entity))
+    return str(path)

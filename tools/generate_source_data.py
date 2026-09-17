@@ -12,7 +12,10 @@ backends:
 
   spark  Any Spark environment, including Databricks writing straight into a
          Unity Catalog Volume (--out-dir /Volumes/<catalog>/landing/source_files).
-  local  Plain filesystem via pyarrow, for running without a cluster.
+         Spark names its own part file inside the load directory.
+  local  Plain filesystem via pyarrow, naming each file as README.md
+         section 6 specifies. Also usable on Databricks, since Volume paths
+         are reachable from the driver.
 
 `--writer auto` (the default) picks Spark when a session is available.
 
@@ -29,7 +32,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from data_generator import entities, schemas  # noqa: E402
+from data_generator import entities  # noqa: E402
 
 
 def build_load_1(rng: random.Random, patients: int, providers: int, encounters: int) -> dict:
@@ -98,9 +101,8 @@ def resolve_writer(preference: str):
 def write_load(data: dict, out_dir: str, load: int, write_fn) -> list[tuple[str, int, str]]:
     written = []
     for entity, rows in data.items():
-        target = f"{out_dir.rstrip('/')}/{entity}/load_{load}/{schemas.ENTITIES[entity]['filename']}"
-        write_fn(entity, rows, target)
-        written.append((entity, len(rows), target))
+        load_dir = f"{out_dir.rstrip('/')}/{entity}/load_{load}"
+        written.append((entity, len(rows), write_fn(entity, rows, load_dir)))
     return written
 
 

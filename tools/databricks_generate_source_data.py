@@ -24,7 +24,7 @@ for candidate in (os.getcwd(), os.path.join(os.getcwd(), "tools")):
     if candidate not in sys.path:
         sys.path.insert(0, candidate)
 
-from data_generator import schemas, spark_writers
+from data_generator import spark_writers
 from generate_source_data import build_load
 
 # COMMAND ----------
@@ -65,8 +65,9 @@ data = build_load(
 )
 
 for entity, rows in data.items():
-    target = f"{out_dir}/{entity}/load_{load}/{schemas.ENTITIES[entity]['filename']}"
-    spark_writers.write_entity(spark, entity, rows, target)
+    target = spark_writers.write_entity(
+        spark, entity, rows, f"{out_dir}/{entity}/load_{load}"
+    )
     print(f"{entity:<15} {len(rows):>7,} rows  ->  {target}")
 
 # COMMAND ----------
