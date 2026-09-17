@@ -1,3 +1,8 @@
-# Dependencies for the source-data generator only (not the Databricks
-# pipelines, which run on the cluster runtime).
+# Dependencies for running the source-data generator outside Databricks.
+# On a cluster both are already present in the runtime.
+
+# Local writer backend only. Not needed when writing through Spark.
 pyarrow>=14.0
+
+# Optional: only to run the Spark writer backend off-cluster.
+# pyspark>=3.5
